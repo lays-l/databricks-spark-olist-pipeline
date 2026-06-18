@@ -18,7 +18,7 @@
 
 # COMMAND ----------
 
-from pyspark.sql.functions import current_timestamp, current_date, input_file_name
+from pyspark.sql.functions import current_timestamp, current_date, col
 from src.config import RAW_DATA_PATH, SOURCE_FILES
 from src.config import (
     BRONZE_ORDERS, BRONZE_ITEMS, BRONZE_PAYMENTS, BRONZE_CUSTOMERS,
@@ -48,7 +48,9 @@ def ingest_csv_to_bronze(file_name: str, schema, table_name: str):
         .csv(path)
         .withColumn("ingestion_timestamp", current_timestamp())
         .withColumn("ingestion_date", current_date())
-        .withColumn("source_file", input_file_name())
+        # input_file_name() não é suportado no Unity Catalog
+        # _metadata.file_path é a alternativa nativa para ambientes com UC habilitado
+        .withColumn("source_file", col("_metadata.file_path"))
     )
 
     df.write.format("delta").mode("overwrite").saveAsTable(table_name)
