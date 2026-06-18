@@ -43,7 +43,15 @@ spark.sql("SELECT current_catalog(), current_database()").show()
 # COMMAND ----------
 
 import os
-os.environ["KAGGLE_API_TOKEN"] = "seu_token_aqui"  # substituir — não commitar
+
+# O Databricks Free Edition (Serverless) não suporta configuração de variáveis de ambiente
+# pela interface. O token deve ser informado diretamente nesta célula antes de executar.
+# ATENÇÃO: substitua o valor abaixo pelo seu token e NÃO faça commit com o token real.
+# Após o download, os CSVs ficam persistidos no Volume e esta célula não precisa ser
+# executada novamente.
+os.environ["KAGGLE_API_TOKEN"] = "KGAT_seu_token_aqui"  # substituir antes de executar
+
+print("Token configurado.")
 
 # COMMAND ----------
 
