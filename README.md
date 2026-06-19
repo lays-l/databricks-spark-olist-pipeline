@@ -180,6 +180,34 @@ Abra cada notebook dentro do repo no Databricks e execute com **Serverless compu
 
 ---
 
+## Melhorias futuras (implementação em produção)
+
+Em um cenário real com dados chegando continuamente, as seguintes evoluções seriam aplicadas:
+
+**Pipeline e ingestão**
+- Carga incremental com watermark e `MERGE INTO` na Silver — padrão documentado em `docs/project_talking_points.md`
+- Tabela de controle `pipeline_control.last_run` para gerenciar o watermark de forma robusta e desacoplada da Bronze
+- `VACUUM` automatizado nas tabelas Gold para liberar arquivos antigos do time travel após o período de retenção
+
+**Agendamento e orquestração**
+- Migrar a lógica dos notebooks para **módulos Python puros** (`src/`) — notebooks são adequados para exploração e desenvolvimento, mas em produção dificultam testes, versionamento e reuso
+- Empacotar o pipeline como um **Python wheel** e executar via `spark-submit` ou Databricks Jobs, eliminando a dependência do ambiente interativo de notebook
+- Orquestrar as etapas com **Apache Airflow** (Astronomer) ou **Databricks Workflows** chamando os jobs diretamente — com dependências explícitas entre Bronze → Silver → Gold → Quality
+- Alertas automáticos em caso de falha — integração com email ou Slack via webhook no orquestrador
+
+**Qualidade e testes**
+- Testes unitários com `pytest` para as funções de `src/data_quality.py`
+- Validação de contagem de linhas entre camadas como gate antes de avançar para a próxima etapa
+
+**Consumo e visualização**
+- Dashboard no Databricks SQL conectado às tabelas Gold — visualização das perguntas de negócio sem SQL manual
+
+**Arquitetura**
+- Catálogos separados por ambiente (`dev.bronze.*`, `prod.bronze.*`) usando Unity Catalog multi-catalog
+- Job clusters em vez de Serverless para workloads maiores — maior controle de configuração e custo
+
+---
+
 ## Documentação
 
 | Arquivo | Conteúdo |
