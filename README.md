@@ -79,9 +79,7 @@ databricks-spark-olist-pipeline/
 │   └── data_quality.py    # funções de validação de qualidade
 │
 ├── sql/
-│   ├── create_catalog_schema.sql  # criação de schemas e Volume
-│   ├── sample_queries.sql         # queries analíticas de exemplo
-│   └── optimize_tables.sql        # OPTIMIZE + ZORDER
+│   └── sample_queries.sql         # 12 queries analíticas prontas para o SQL Editor
 │
 └── docs/
     ├── architecture.md
