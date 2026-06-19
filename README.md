@@ -258,7 +258,37 @@ Em um pipeline real com dados chegando continuamente, a abordagem correta seria:
 O Delta Lake suporta as duas estratégias nativamente e mantém o transaction log em ambos os
 casos, o que habilita `time travel` independentemente do modo usado.
 
-**Por que ZORDER em `customer_state` e `order_status`?**
-As queries analíticas filtram frequentemente por essas colunas. O ZORDER concentra
-dados com os mesmos valores em poucos blocos, melhorando o data skipping e reduzindo
-o volume lido pelo Spark.
+**OPTIMIZE e ZORDER — quando cada um importa**
+
+O Delta Lake acumula arquivos Parquet pequenos a cada write — especialmente em tabelas
+particionadas ou com cargas incrementais frequentes. O `OPTIMIZE` compacta esses arquivos
+em arquivos maiores (~1 GB), reduzindo o overhead de I/O.
+
+> **Impacto real:** em pipelines com carga incremental diária (append ou MERGE), cada
+> execução gera novos arquivos nas partições existentes. Sem `OPTIMIZE`, uma partição de
+> um dia pode ter dezenas de arquivos tiny após semanas de execução. Neste projeto com
+> dataset estático e `overwrite`, o impacto do OPTIMIZE é baixo — o valor aparece em
+> produção com cargas incrementais contínuas.
+
+O `OPTIMIZE` não exclui fisicamente os arquivos antigos: apenas os marca como removidos
+no transaction log. A exclusão física ocorre ao rodar `VACUUM` (mínimo recomendado:
+`RETAIN 168 HOURS` para preservar 7 dias de time travel).
+
+**ZORDER e data skipping**
+
+O Delta Lake armazena estatísticas de `min` e `max` por coluna para cada bloco de dados
+automaticamente em **todos os writes** — independente do ZORDER. O que o ZORDER muda
+não é a existência das estatísticas, mas a **utilidade** delas.
+
+Sem ZORDER, os dados são distribuídos aleatoriamente: cada bloco tem SP misturado com
+AM, RJ, MG... então o intervalo `min='AM' / max='SP'` se repete em praticamente todos
+os blocos. O Spark não consegue eliminar nenhum bloco ao filtrar por `customer_state = 'SP'`.
+
+Com `ZORDER BY (customer_state)`, registros com valores próximos ficam no mesmo bloco.
+Os intervalos min/max deixam de se sobrepor — o Spark pula a maioria dos blocos sem
+abri-los. Isso é o **data skipping**.
+
+A coluna escolhida deve ser de **média cardinalidade** e usada frequentemente em filtros
+analíticos. `customer_state` (27 valores) e `order_status` (7 valores) são candidatos
+ideais. `order_id` (99 mil valores únicos) não beneficia o ZORDER — cada bloco teria um
+intervalo min/max único e nenhum bloco seria pulado.
