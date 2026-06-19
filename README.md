@@ -1,6 +1,6 @@
 # Databricks + PySpark + Delta Lake — Olist E-Commerce Pipeline
 
-Pipeline de engenharia de dados desenvolvido como projeto de pós-graduação, utilizando
+Pipeline de engenharia de dados desenvolvido como projeto pessoal, utilizando
 **Databricks Free Edition**, **PySpark**, **Spark SQL** e **Delta Lake** com a base pública
 [Brazilian E-Commerce Public Dataset by Olist](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce).
 
