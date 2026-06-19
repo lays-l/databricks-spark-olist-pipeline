@@ -86,7 +86,25 @@ orders_clean = (
                 True
             ).otherwise(False)
         )
-        # null para pedidos não entregues — é_late não é aplicável a pedidos em trânsito
+        # null para pedidos não entregues — is_late não é aplicável a pedidos em trânsito
+    )
+    .select(
+        "order_id",
+        "customer_id",
+        "order_status",
+        "order_purchase_timestamp",
+        "order_purchase_date",
+        "order_approved_at",
+        "order_delivered_carrier_date",
+        "order_delivered_customer_date",
+        "order_estimated_delivery_date",
+        "delivery_days",
+        "estimated_delivery_days",
+        "is_delivered",
+        "is_late",
+        "ingestion_timestamp",
+        "ingestion_date",
+        "source_file",
     )
 )
 
@@ -125,6 +143,18 @@ payments_clean = (
     .withColumn("payment_type",         lower(trim(col("payment_type"))))
     .withColumn("is_credit_card",       when(col("payment_type") == "credit_card", True).otherwise(False))
     .withColumn("is_installment",       when(col("payment_installments") > 1, True).otherwise(False))
+    .select(
+        "order_id",
+        "payment_sequential",
+        "payment_type",
+        "payment_installments",
+        "payment_value",
+        "is_credit_card",
+        "is_installment",
+        "ingestion_timestamp",
+        "ingestion_date",
+        "source_file",
+    )
 )
 
 invalid_payments = payments_clean.filter(
@@ -160,7 +190,7 @@ items_clean = (
     # No dataset atual, freight_value nunca é nulo nem zero (verificado na exploração).
     # O coalesce garante robustez caso fontes futuras enviem null para frete grátis.
     # Bronze preserva o dado bruto — a decisão de tratar null como 0.0 é da Silver.
-    .withColumn("freight_value", coalesce(col("freight_value"), lit(0.0)))
+    .withColumn("freight_value",    coalesce(col("freight_value"), lit(0.0)))
     .withColumn("item_total_value", col("price") + col("freight_value"))
     .filter(
         col("order_id").isNotNull() &
@@ -168,6 +198,19 @@ items_clean = (
         col("seller_id").isNotNull() &
         (col("price") >= 0) &
         (col("freight_value") >= 0)
+    )
+    .select(
+        "order_id",
+        "order_item_id",
+        "product_id",
+        "seller_id",
+        "shipping_limit_date",
+        "price",
+        "freight_value",
+        "item_total_value",
+        "ingestion_timestamp",
+        "ingestion_date",
+        "source_file",
     )
 )
 
@@ -186,6 +229,16 @@ customers_clean = (
     .withColumn("customer_city",  lower(trim(col("customer_city"))))
     .withColumn("customer_state", trim(col("customer_state")))
     .filter(col("customer_id").isNotNull())
+    .select(
+        "customer_id",
+        "customer_unique_id",
+        "customer_zip_code_prefix",
+        "customer_city",
+        "customer_state",
+        "ingestion_timestamp",
+        "ingestion_date",
+        "source_file",
+    )
 )
 
 customers_clean.write.format("delta").mode("overwrite").saveAsTable(SILVER_CUSTOMERS)
@@ -221,6 +274,21 @@ products_clean = (
         coalesce(col("product_category_name_english"), lit("unknown"))
     )
     .filter(col("product_id").isNotNull())
+    .select(
+        "product_id",
+        "product_category_name",
+        "product_category_name_english",
+        "product_name_lenght",
+        "product_description_lenght",
+        "product_photos_qty",
+        "product_weight_g",
+        "product_length_cm",
+        "product_height_cm",
+        "product_width_cm",
+        "ingestion_timestamp",
+        "ingestion_date",
+        "source_file",
+    )
 )
 
 products_clean.write.format("delta").mode("overwrite").saveAsTable(SILVER_PRODUCTS)
@@ -238,6 +306,15 @@ sellers_clean = (
     .withColumn("seller_city",  lower(trim(col("seller_city"))))
     .withColumn("seller_state", trim(col("seller_state")))
     .filter(col("seller_id").isNotNull())
+    .select(
+        "seller_id",
+        "seller_zip_code_prefix",
+        "seller_city",
+        "seller_state",
+        "ingestion_timestamp",
+        "ingestion_date",
+        "source_file",
+    )
 )
 
 sellers_clean.write.format("delta").mode("overwrite").saveAsTable(SILVER_SELLERS)
@@ -252,11 +329,23 @@ reviews_raw = spark.table(BRONZE_REVIEWS)
 
 reviews_clean = (
     reviews_raw
-    .withColumn("review_creation_date",   to_timestamp("review_creation_date"))
+    .withColumn("review_creation_date",    to_timestamp("review_creation_date"))
     .withColumn("review_answer_timestamp", to_timestamp("review_answer_timestamp"))
     .filter(
         col("review_id").isNotNull() &
         col("order_id").isNotNull()
+    )
+    .select(
+        "review_id",
+        "order_id",
+        "review_score",
+        "review_comment_title",
+        "review_comment_message",
+        "review_creation_date",
+        "review_answer_timestamp",
+        "ingestion_timestamp",
+        "ingestion_date",
+        "source_file",
     )
 )
 
@@ -282,6 +371,9 @@ for t in silver_tables:
 # MAGIC %md
 # MAGIC ## Pontos de discussão
 # MAGIC
+# MAGIC - **Select explícito em todas as tabelas:** define a ordem e o contrato de colunas de cada tabela.
+# MAGIC   Torna o schema previsível, facilita revisão de código e evita que colunas indesejadas
+# MAGIC   ou duplicadas viajem para a Silver sem intenção.
 # MAGIC - **Separação de inválidos:** registros com order_id nulo ou status inválido não são descartados —
 # MAGIC   ficam em `silver.invalid_orders` para auditoria e investigação da origem do problema.
 # MAGIC - **is_late como null:** pedidos não entregues recebem `null` em `is_late`, não `False`.
