@@ -145,16 +145,19 @@ print("Produtos com categoria traduzida:", products_translated.count())
 
 # COMMAND ----------
 
-# Verificar número atual de partições
-print(f"Partições atuais da fato: {fact.rdd.getNumPartitions()}")
+# Nota: .rdd.getNumPartitions() não é suportado no Databricks Serverless (RDD API bloqueada).
+# Em ambientes com cluster clássico, seria possível inspecionar o número de partições assim:
+#   print(f"Partições atuais: {fact.rdd.getNumPartitions()}")
+# No Serverless, o número de partições é gerenciado automaticamente pelo runtime.
 
 # ✅ Repartition por coluna de agrupamento antes de múltiplas agregações
 # Útil quando a mesma coluna será usada em vários groupBy seguidos
 fact_repartitioned = fact.repartition("customer_state")
-print(f"Partições após repartition: {fact_repartitioned.rdd.getNumPartitions()}")
 
 # ❌ Não usar repartition sem necessidade — gera shuffle desnecessário
 # fact_repartitioned = fact.repartition(200)  # evitar número arbitrário sem análise
+
+print(f"Repartition por customer_state aplicado: {fact_repartitioned.count()} linhas")
 
 # COMMAND ----------
 # MAGIC %md ## 5. Cache com critério
