@@ -13,7 +13,9 @@
 
 # COMMAND ----------
 
-from pyspark.sql.functions import col, count, when, current_timestamp, lit, round
+from pyspark.sql.functions import col, count, when, current_timestamp, lit
+# 'round' não é importado do Spark para não sobrescrever o built-in do Python,
+# que é usado no cálculo do percentual de registros inválidos (operação sobre floats).
 from datetime import datetime
 
 from src.config import (
