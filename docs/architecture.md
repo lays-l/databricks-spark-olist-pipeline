@@ -52,7 +52,7 @@ Responsabilidade: tabelas modeladas para responder perguntas de negócio sem joi
 - `product_category_revenue` — receita por categoria
 - `seller_performance` — desempenho por seller
 - `payment_method_summary` — resumo por método de pagamento
-- Modo de escrita: `overwrite` (dataset estático — ver README para carga incremental)
+- Modo de escrita: `overwrite` (dataset estático — ver `docs/project_talking_points.md` para padrão incremental com watermark e MERGE)
 
 ---
 
@@ -75,8 +75,27 @@ O catálogo `workspace` é o padrão do Databricks Free Edition (confirmado via 
 
 Todas as tabelas são Delta — não Parquet puro. Isso habilita:
 
-- **ACID transactions** — escritas atômicas sem dados corrompidos em falhas parciais
-- **Schema enforcement** — rejeita escritas que violam o schema definido
-- **Time travel** — consulta versões anteriores via `VERSION AS OF` ou `TIMESTAMP AS OF`
-- **Transaction log** — histórico de todas as operações em `DESCRIBE HISTORY`
-- **OPTIMIZE + ZORDER** — compactação de arquivos e reorganização física para data skipping
+- **ACID transactions** — escritas atômicas sem dados corrompidos em falhas parciais.
+  Sem ACID, uma falha no meio de um `overwrite` pode deixar a tabela com arquivos parciais.
+  O Delta escreve em staging e só confirma no transaction log após a conclusão.
+
+- **Schema enforcement** — rejeita escritas que violam o schema definido.
+  Se um novo campo chegar com tipo errado (ex: `price` como `StringType`), o Delta recusa
+  o write em vez de corromper silenciosamente os dados.
+
+- **Time travel** — consulta versões anteriores via número de versão ou timestamp.
+
+  ```python
+  # Estado da tabela antes do último overwrite
+  spark.read.format("delta").option("versionAsOf", 0).table("workspace.gold.fact_order_revenue")
+
+  # Histórico de todas as operações
+  spark.sql("DESCRIBE HISTORY workspace.gold.fact_order_revenue").show(truncate=False)
+  ```
+
+- **Transaction log** — cada operação (`write`, `MERGE`, `OPTIMIZE`) gera uma entrada em
+  `_delta_log/`. O Spark lê esse log para reconstruir o estado atual da tabela sem precisar
+  escanear todos os arquivos físicos.
+
+- **OPTIMIZE + ZORDER** — compactação de arquivos pequenos e reorganização física para
+  data skipping. Ver detalhes em `docs/spark_concepts.md`.
