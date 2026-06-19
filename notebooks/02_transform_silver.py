@@ -155,9 +155,13 @@ items_raw = spark.table(BRONZE_ITEMS)
 items_clean = (
     items_raw
     .withColumn("shipping_limit_date", to_timestamp("shipping_limit_date"))
-    .withColumn("price",               col("price").cast("double"))
-    .withColumn("freight_value",       col("freight_value").cast("double"))
-    .withColumn("item_total_value",    col("price") + col("freight_value"))
+    .withColumn("price",         col("price").cast("double"))
+    .withColumn("freight_value", col("freight_value").cast("double"))
+    # No dataset atual, freight_value nunca é nulo nem zero (verificado na exploração).
+    # O coalesce garante robustez caso fontes futuras enviem null para frete grátis.
+    # Bronze preserva o dado bruto — a decisão de tratar null como 0.0 é da Silver.
+    .withColumn("freight_value", coalesce(col("freight_value"), lit(0.0)))
+    .withColumn("item_total_value", col("price") + col("freight_value"))
     .filter(
         col("order_id").isNotNull() &
         col("product_id").isNotNull() &
