@@ -49,12 +49,14 @@ def ingest_csv_to_bronze(file_name: str, schema, table_name: str, multiline: boo
         spark.read
         .option("header", True)
         .option("multiLine", multiline)
+        # escape='"' segue o padrão RFC 4180: "" dentro de um campo entre aspas = aspa literal.
+        # O default do Spark é escape='\', que não entende "", causando
+        # desalinhamento de colunas em campos com aspas duplas escapadas (ex: review_comment_message).
+        .option("escape", '"')
         .schema(schema)
         .csv(path)
         .withColumn("ingestion_timestamp", current_timestamp())
         .withColumn("ingestion_date", current_date())
-        # input_file_name() não é suportado no Unity Catalog
-        # _metadata.file_path é a alternativa nativa para ambientes com UC habilitado
         .withColumn("source_file", col("_metadata.file_path"))
     )
 
