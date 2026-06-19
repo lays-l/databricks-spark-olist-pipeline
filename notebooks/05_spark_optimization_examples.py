@@ -174,21 +174,27 @@ print(f"Repartition por customer_state aplicado: {fact_repartitioned.count()} li
 
 # COMMAND ----------
 
-# Exemplo: fact é usada em múltiplas agregações — candidata ao cache
-fact_cached = fact.cache()
+# Nota: .cache() usa PERSIST TABLE internamente, que não é suportado no Databricks Serverless.
+# Em ambientes com cluster clássico, o padrão seria:
+#
+#   fact_cached = fact.cache()
+#
+#   # Primeira action: materializa e armazena em memória
+#   agg1 = fact_cached.filter(col("customer_state") == "SP").count()
+#
+#   # Segunda action: lê do cache, não relê o Delta
+#   agg2 = fact_cached.filter(col("is_late") == True).count()
+#
+#   print(f"Pedidos em SP: {agg1}")
+#   print(f"Pedidos com atraso: {agg2}")
+#
+#   # Liberar memória quando não precisar mais
+#   fact_cached.unpersist()
+#
+# No Serverless, o runtime gerencia automaticamente o cache de DataFrames — o .cache()
+# explícito não é necessário nem suportado.
 
-# Primeira action: materializa e armazena em memória
-agg1 = fact_cached.filter(col("customer_state") == "SP").count()
-
-# Segunda action: lê do cache, não relê o Delta
-agg2 = fact_cached.filter(col("is_late") == True).count()
-
-print(f"Pedidos em SP: {agg1}")
-print(f"Pedidos com atraso: {agg2}")
-
-# Liberar memória quando não precisar mais
-fact_cached.unpersist()
-print("Cache liberado.")
+print("Exemplo de cache comentado — não suportado no Serverless (PERSIST TABLE bloqueado).")
 
 # COMMAND ----------
 # MAGIC %md ## 6. OPTIMIZE e ZORDER (Delta Lake)
