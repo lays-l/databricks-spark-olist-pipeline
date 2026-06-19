@@ -188,3 +188,32 @@ SELECT
 FROM workspace.gold.fact_order_revenue
 GROUP BY order_status
 ORDER BY total_orders DESC;
+
+
+-- =============================================================================
+-- 13. Resultado das verificações de qualidade (04_data_quality_checks.py)
+-- Visão geral do pipeline de auditoria: quais regras passaram e quais falharam
+-- =============================================================================
+SELECT
+    table_name,
+    rule_name,
+    total_records,
+    invalid_records,
+    invalid_pct,
+    status,
+    checked_at
+FROM workspace.gold.data_quality_summary
+ORDER BY table_name, rule_name;
+
+
+-- =============================================================================
+-- 14. Regras com falha — detalhamento para investigação
+-- =============================================================================
+SELECT
+    table_name,
+    rule_name,
+    invalid_records,
+    invalid_pct
+FROM workspace.gold.data_quality_summary
+WHERE status = 'FAIL'
+ORDER BY invalid_records DESC;
