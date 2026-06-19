@@ -19,9 +19,8 @@
 # COMMAND ----------
 
 from pyspark.sql.functions import (
-    col, to_timestamp, to_date, datediff,
-    when, lower, trim, coalesce, lit,
-    broadcast
+    col, to_timestamp, try_to_timestamp, to_date, datediff,
+    when, lower, trim, coalesce, lit, broadcast
 )
 from src.config import (
     BRONZE_ORDERS, BRONZE_ITEMS, BRONZE_PAYMENTS, BRONZE_CUSTOMERS,
@@ -29,14 +28,10 @@ from src.config import (
     SILVER_ORDERS, SILVER_ITEMS, SILVER_PAYMENTS, SILVER_CUSTOMERS,
     SILVER_PRODUCTS, SILVER_SELLERS, SILVER_REVIEWS
 )
+from src.data_quality import VALID_ORDER_STATUSES
 
 SILVER_INVALID_ORDERS   = "workspace.silver.invalid_orders"
 SILVER_INVALID_PAYMENTS = "workspace.silver.invalid_payments"
-
-VALID_ORDER_STATUSES = [
-    "created", "approved", "invoiced", "processing",
-    "shipped", "delivered", "unavailable", "canceled"
-]
 
 # COMMAND ----------
 # MAGIC %md ## silver.orders
@@ -58,13 +53,13 @@ orders_raw = spark.table(BRONZE_ORDERS)
 
 orders_clean = (
     orders_raw
-    .withColumn("order_purchase_timestamp",       to_timestamp("order_purchase_timestamp"))
-    .withColumn("order_approved_at",              to_timestamp("order_approved_at"))
-    .withColumn("order_delivered_carrier_date",   to_timestamp("order_delivered_carrier_date"))
-    .withColumn("order_delivered_customer_date",  to_timestamp("order_delivered_customer_date"))
-    .withColumn("order_estimated_delivery_date",  to_timestamp("order_estimated_delivery_date"))
-    .withColumn("order_status",                   lower(trim(col("order_status"))))
-    .withColumn("order_purchase_date",            to_date("order_purchase_timestamp"))
+    .withColumn("order_purchase_timestamp",      to_timestamp("order_purchase_timestamp"))
+    .withColumn("order_approved_at",             to_timestamp("order_approved_at"))
+    .withColumn("order_delivered_carrier_date",  to_timestamp("order_delivered_carrier_date"))
+    .withColumn("order_delivered_customer_date", to_timestamp("order_delivered_customer_date"))
+    .withColumn("order_estimated_delivery_date", to_timestamp("order_estimated_delivery_date"))
+    .withColumn("order_status",                  lower(trim(col("order_status"))))
+    .withColumn("order_purchase_date",           to_date("order_purchase_timestamp"))
     .withColumn(
         "delivery_days",
         datediff(col("order_delivered_customer_date"), col("order_purchase_timestamp"))
@@ -329,8 +324,9 @@ reviews_raw = spark.table(BRONZE_REVIEWS)
 
 reviews_clean = (
     reviews_raw
-    .withColumn("review_creation_date",    to_timestamp("review_creation_date"))
-    .withColumn("review_answer_timestamp", to_timestamp("review_answer_timestamp"))
+    # try_to_timestamp em vez de to_timestamp: datas malformadas → null em vez de exceção
+    .withColumn("review_creation_date",    try_to_timestamp("review_creation_date"))
+    .withColumn("review_answer_timestamp", try_to_timestamp("review_answer_timestamp"))
     .filter(
         col("review_id").isNotNull() &
         col("order_id").isNotNull()
