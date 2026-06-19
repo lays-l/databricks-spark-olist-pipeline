@@ -215,9 +215,48 @@ Usar `False` para pedidos ainda em trânsito mascararia a análise de taxa de at
 `null` deixa explícito que o campo não é aplicável, e o filtro `WHERE is_delivered = true`
 garante que apenas pedidos concluídos entram no cálculo.
 
-**Por que MERGE e não overwrite total?**
-`mode("overwrite")` reescreve toda a tabela a cada execução. O MERGE aplica apenas
-as diferenças (inserções e atualizações), preserva o transaction log e permite time travel.
+**Por que `overwrite` e não carga incremental?**
+
+Este projeto usa `mode("overwrite")` na Bronze e Silver intencionalmente, por duas razões:
+
+1. **Dataset estático** — os CSVs da Olist são um snapshot histórico fixo. Não há novos
+   arquivos chegando, portanto não existe "delta" real a processar. Fazer MERGE num dataset
+   que nunca muda não acrescentaria valor prático.
+
+2. **Foco educacional** — o overwrite simplifica o ciclo de desenvolvimento: limpa a tabela
+   e reescreve do zero a cada execução, eliminando efeitos colaterais de reprocessamentos
+   parciais durante a construção e depuração do pipeline.
+
+**Como seria o incremental em produção:**
+
+Em um pipeline real com dados chegando continuamente, a abordagem correta seria:
+
+- **Bronze (append):** ao invés de `overwrite`, usar `mode("append")` com filtro por data de
+  ingestão, garantindo que apenas arquivos novos sejam processados:
+
+  ```python
+  df.write.format("delta").mode("append").saveAsTable(table_name)
+  ```
+
+- **Silver (MERGE/upsert):** para refletir atualizações em pedidos já existentes (ex: status
+  mudou de `shipped` para `delivered`), usar `MERGE INTO` que aplica insert para novos
+  registros e update para os existentes, sem reescrever toda a tabela:
+
+  ```python
+  silver_table.alias("target").merge(
+      new_data.alias("source"),
+      "target.order_id = source.order_id"
+  ).whenMatchedUpdateAll()   # atualiza se já existe
+   .whenNotMatchedInsertAll() # insere se é novo
+   .execute()
+  ```
+
+- **Gold (MERGE ou recalculo incremental):** tabelas de agregação podem ser recalculadas
+  apenas para o período afetado (ex: última semana) usando filtro de partição, evitando
+  reprocessar todo o histórico.
+
+O Delta Lake suporta as duas estratégias nativamente e mantém o transaction log em ambos os
+casos, o que habilita `time travel` independentemente do modo usado.
 
 **Por que ZORDER em `customer_state` e `order_status`?**
 As queries analíticas filtram frequentemente por essas colunas. O ZORDER concentra
