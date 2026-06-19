@@ -1,5 +1,5 @@
-from pyspark.sql import DataFrame, SparkSession
-from pyspark.sql.functions import col, count, when, current_timestamp, lit
+from pyspark.sql import DataFrame
+from pyspark.sql.functions import col
 
 
 VALID_ORDER_STATUSES = [
@@ -19,24 +19,18 @@ def check_non_negative(df: DataFrame, column: str) -> DataFrame:
 
 
 def check_valid_status(df: DataFrame, column: str, valid_values: list) -> DataFrame:
-    """Retorna registros onde o valor não está na lista permitida."""
+    """Retorna registros onde o valor não está na lista de valores permitidos."""
     return df.filter(~col(column).isin(valid_values))
 
 
-def build_quality_summary(
-    spark: SparkSession,
-    table_name: str,
-    rule_name: str,
-    total: int,
-    invalid: int
-) -> DataFrame:
-    """Cria uma linha de resumo de qualidade para salvar em gold.data_quality_summary."""
-    invalid_pct = round(invalid / total * 100, 2) if total > 0 else 0.0
-    return spark.createDataFrame([{
-        "table_name": table_name,
-        "rule_name": rule_name,
-        "total_records": total,
-        "invalid_records": invalid,
-        "invalid_percentage": invalid_pct,
-        "checked_at": str(current_timestamp()),
-    }])
+def check_no_duplicates(df: DataFrame, key_column: str) -> DataFrame:
+    """
+    Retorna os grupos de key_column que aparecem mais de uma vez.
+    Usado para validar a unicidade da chave primária (grain) de uma tabela.
+    """
+    from pyspark.sql.functions import count
+    return (
+        df.groupBy(key_column)
+        .agg(count("*").alias("occurrences"))
+        .filter(col("occurrences") > 1)
+    )

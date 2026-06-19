@@ -20,6 +20,10 @@ from src.config import (
     SILVER_ORDERS, SILVER_ITEMS, SILVER_PAYMENTS,
     GOLD_FACT, GOLD_DQ_SUMMARY
 )
+from src.data_quality import (
+    check_not_null, check_non_negative, check_valid_status,
+    check_no_duplicates, VALID_ORDER_STATUSES
+)
 
 # COMMAND ----------
 # MAGIC %md ## Função de verificação
@@ -34,28 +38,29 @@ from src.config import (
 
 results = []
 
-def check(table_name: str, rule_name: str, df, invalid_expr):
+def check(table_name: str, rule_name: str, df, invalid_df):
     """
     Executa uma regra de qualidade e armazena o resultado na lista de auditoria.
 
-    table_name:   nome completo da tabela verificada
-    rule_name:    descrição da regra (ex: "order_id not null")
-    df:           DataFrame a verificar
-    invalid_expr: expressão booleana — True = registro inválido
+    table_name:  nome completo da tabela verificada
+    rule_name:   descrição da regra (ex: "order_id not null")
+    df:          DataFrame completo (para contar o total)
+    invalid_df:  DataFrame filtrado retornado pelas funções de src.data_quality
+                 (check_not_null, check_non_negative, check_valid_status, check_no_duplicates)
     """
-    total    = df.count()
-    invalid  = df.filter(invalid_expr).count()
-    pct      = round(invalid / total * 100, 4) if total > 0 else 0.0
-    status   = "PASS" if invalid == 0 else "FAIL"
+    total   = df.count()
+    invalid = invalid_df.count()
+    pct     = round(invalid / total * 100, 4) if total > 0 else 0.0
+    status  = "PASS" if invalid == 0 else "FAIL"
 
     results.append({
-        "table_name":       table_name,
-        "rule_name":        rule_name,
-        "total_records":    total,
-        "invalid_records":  invalid,
-        "invalid_pct":      pct,
-        "status":           status,
-        "checked_at":       datetime.now().isoformat()
+        "table_name":      table_name,
+        "rule_name":       rule_name,
+        "total_records":   total,
+        "invalid_records": invalid,
+        "invalid_pct":     pct,
+        "status":          status,
+        "checked_at":      datetime.now().isoformat()
     })
     print(f"  [{status}] {table_name} — {rule_name}: {invalid}/{total} inválidos ({pct}%)")
 
@@ -73,35 +78,17 @@ def check(table_name: str, rule_name: str, df, invalid_expr):
 orders = spark.table(SILVER_ORDERS)
 
 check(SILVER_ORDERS, "order_id not null",
-      orders, col("order_id").isNull())
+      orders, check_not_null(orders, "order_id"))
 
 check(SILVER_ORDERS, "customer_id not null",
-      orders, col("customer_id").isNull())
+      orders, check_not_null(orders, "customer_id"))
 
 check(SILVER_ORDERS, "order_status valid",
-      orders, ~col("order_status").isin(
-          "approved", "invoiced", "processing",
-          "shipped", "delivered", "unavailable", "canceled"
-      ))
+      orders, check_valid_status(orders, "order_status", VALID_ORDER_STATUSES))
 
-# Duplicatas: agrupa por order_id e conta grupos com mais de 1 linha
-orders_dup = (
-    orders.groupBy("order_id")
-    .count()
-    .filter(col("count") > 1)
-)
-dup_count = orders_dup.count()
-status = "PASS" if dup_count == 0 else "FAIL"
-results.append({
-    "table_name":      SILVER_ORDERS,
-    "rule_name":       "order_id no duplicates",
-    "total_records":   orders.count(),
-    "invalid_records": dup_count,
-    "invalid_pct":     0.0 if dup_count == 0 else round(dup_count / orders.count() * 100, 4),
-    "status":          status,
-    "checked_at":      datetime.now().isoformat()
-})
-print(f"  [{status}] {SILVER_ORDERS} — order_id no duplicates: {dup_count} duplicados")
+# check_no_duplicates retorna os grupos com mais de 1 ocorrência — cada linha = 1 order_id duplicado
+check(SILVER_ORDERS, "order_id no duplicates",
+      orders, check_no_duplicates(orders, "order_id"))
 
 # COMMAND ----------
 # MAGIC %md ## Verificações: `silver.order_payments`
@@ -116,16 +103,16 @@ print(f"  [{status}] {SILVER_ORDERS} — order_id no duplicates: {dup_count} dup
 payments = spark.table(SILVER_PAYMENTS)
 
 check(SILVER_PAYMENTS, "order_id not null",
-      payments, col("order_id").isNull())
+      payments, check_not_null(payments, "order_id"))
 
 check(SILVER_PAYMENTS, "payment_value >= 0",
-      payments, col("payment_value") < 0)
+      payments, check_non_negative(payments, "payment_value"))
 
 check(SILVER_PAYMENTS, "payment_installments >= 0",
-      payments, col("payment_installments") < 0)
+      payments, check_non_negative(payments, "payment_installments"))
 
 check(SILVER_PAYMENTS, "payment_type not null",
-      payments, col("payment_type").isNull())
+      payments, check_not_null(payments, "payment_type"))
 
 # COMMAND ----------
 # MAGIC %md ## Verificações: `silver.order_items`
@@ -139,19 +126,19 @@ check(SILVER_PAYMENTS, "payment_type not null",
 items = spark.table(SILVER_ITEMS)
 
 check(SILVER_ITEMS, "order_id not null",
-      items, col("order_id").isNull())
+      items, check_not_null(items, "order_id"))
 
 check(SILVER_ITEMS, "product_id not null",
-      items, col("product_id").isNull())
+      items, check_not_null(items, "product_id"))
 
 check(SILVER_ITEMS, "seller_id not null",
-      items, col("seller_id").isNull())
+      items, check_not_null(items, "seller_id"))
 
 check(SILVER_ITEMS, "price >= 0",
-      items, col("price") < 0)
+      items, check_non_negative(items, "price"))
 
 check(SILVER_ITEMS, "freight_value >= 0",
-      items, col("freight_value") < 0)
+      items, check_non_negative(items, "freight_value"))
 
 # COMMAND ----------
 # MAGIC %md ## Verificações: `gold.fact_order_revenue`
@@ -182,13 +169,13 @@ results.append({
 print(f"  [{grain_status}] {GOLD_FACT} — grain matches silver.orders: fact={fact_count}, silver={orders_count}")
 
 check(GOLD_FACT, "order_id not null",
-      fact, col("order_id").isNull())
+      fact, check_not_null(fact, "order_id"))
 
 check(GOLD_FACT, "delivered orders have delivery_days",
-      fact, (col("is_delivered") == True) & col("delivery_days").isNull())
+      fact, fact.filter((col("is_delivered") == True) & col("delivery_days").isNull()))
 
 check(GOLD_FACT, "payment_total_value >= 0",
-      fact, col("payment_total_value") < 0)
+      fact, check_non_negative(fact, "payment_total_value"))
 
 # COMMAND ----------
 # MAGIC %md ## Salvar resultado na tabela de auditoria

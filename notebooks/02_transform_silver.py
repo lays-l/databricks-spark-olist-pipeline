@@ -19,7 +19,7 @@
 # COMMAND ----------
 
 from pyspark.sql.functions import (
-    col, to_timestamp, try_to_timestamp, to_date, datediff,
+    col, to_timestamp, to_date, datediff,
     when, lower, trim, coalesce, lit, broadcast
 )
 from src.config import (
@@ -324,9 +324,8 @@ reviews_raw = spark.table(BRONZE_REVIEWS)
 
 reviews_clean = (
     reviews_raw
-    # try_to_timestamp em vez de to_timestamp: datas malformadas → null em vez de exceção
-    .withColumn("review_creation_date",    try_to_timestamp("review_creation_date"))
-    .withColumn("review_answer_timestamp", try_to_timestamp("review_answer_timestamp"))
+    .withColumn("review_creation_date",    to_timestamp("review_creation_date"))
+    .withColumn("review_answer_timestamp", to_timestamp("review_answer_timestamp"))
     .filter(
         col("review_id").isNotNull() &
         col("order_id").isNotNull()

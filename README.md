@@ -22,19 +22,18 @@ Pipeline de engenharia de dados desenvolvido como projeto de pós-graduação, u
 ## Arquitetura
 
 ```
-CSVs da Olist
-(Kaggle → Unity Catalog Volume)
-        ↓
-/Volumes/workspace/default/olist_raw/
+CSVs da Olist (Kaggle → Unity Catalog Volume)
         ↓  [01_ingest_bronze.py]
 workspace.bronze.*   — dados brutos com schema explícito + metadados de ingestão
         ↓  [02_transform_silver.py]
 workspace.silver.*   — tipagem, limpeza, validação, registros inválidos isolados
         ↓  [03_build_gold.py]
-workspace.gold.*     — tabelas analíticas: fato, agregações, MERGE incremental
+workspace.gold.*     — tabelas analíticas prontas para consumo
         ↓
-Databricks SQL Editor / Dashboard
+Databricks SQL Editor / sql/sample_queries.sql
 ```
+
+Detalhes de cada camada: [`docs/architecture.md`](docs/architecture.md)
 
 ---
 
@@ -60,31 +59,26 @@ databricks-spark-olist-pipeline/
 ├── requirements.txt
 ├── .gitignore
 │
-├── data/
-│   ├── raw/          # placeholder local — dados reais ficam no Volume
-│   └── sample/       # dados sintéticos gerados por scripts/generate_sample_data.py
-│
 ├── notebooks/
 │   ├── 00_setup.py               # setup do ambiente, download dos CSVs
 │   ├── 01_ingest_bronze.py       # ingestão CSV → Delta Bronze
 │   ├── 02_transform_silver.py    # limpeza, tipagem, validação
-│   ├── 03_build_gold.py          # tabelas analíticas + MERGE incremental
+│   ├── 03_build_gold.py          # tabelas analíticas
 │   ├── 04_data_quality_checks.py # validações com registro de auditoria
 │   └── 05_spark_optimization_examples.py  # broadcast, ZORDER, time travel
 │
 ├── src/
-│   ├── config.py          # constantes: paths, nomes de tabelas, catalog
-│   ├── schemas.py         # StructType explícitos para cada tabela Bronze
-│   ├── transformations.py # funções de transformação reutilizáveis
-│   └── data_quality.py    # funções de validação de qualidade
+│   ├── config.py       # constantes: paths, nomes de tabelas, catalog
+│   ├── schemas.py      # StructType explícitos para cada tabela Bronze
+│   └── data_quality.py # funções de validação reutilizáveis
 │
 ├── sql/
-│   └── sample_queries.sql         # 12 queries analíticas prontas para o SQL Editor
+│   └── sample_queries.sql  # 12 queries analíticas prontas para o SQL Editor
 │
 └── docs/
-    ├── architecture.md
-    ├── spark_concepts.md
-    └── project_talking_points.md
+    ├── architecture.md            # diagrama e descrição de cada camada
+    ├── spark_concepts.md          # lazy eval, broadcast, ZORDER, time travel
+    └── project_talking_points.md  # decisões técnicas e pontos de defesa
 ```
 
 ---
@@ -108,9 +102,8 @@ databricks-spark-olist-pipeline/
 ### 2. Configurar o Kaggle API Token
 
 > **Restrição do Databricks Free Edition:** o Serverless não possui suporte a variáveis
-> de ambiente pela interface de configuração (a seção "Environment variables" não existe
-> nessa versão). O token deve ser informado diretamente na célula do notebook antes de
-> executar o download, e **não deve ser commitado no repositório**.
+> de ambiente pela interface de configuração. O token deve ser informado diretamente na
+> célula do notebook antes de executar o download, e **não deve ser commitado**.
 
 **Como obter o token:**
 1. Acesse [kaggle.com/settings](https://www.kaggle.com/settings)
@@ -136,17 +129,17 @@ Abra cada notebook dentro do repo no Databricks e execute com **Serverless compu
 | Notebook | O que faz |
 |---|---|
 | `00_setup.py` | Cria schemas, Volume e baixa os CSVs via Kaggle API |
-| `01_ingest_bronze.py` | Lê CSVs com schema explícito → salva como Delta em `workspace.bronze.*` |
+| `01_ingest_bronze.py` | Lê CSVs com schema explícito → `workspace.bronze.*` |
 | `02_transform_silver.py` | Tipagem, limpeza, campos calculados → `workspace.silver.*` |
-| `03_build_gold.py` | Tabelas analíticas + MERGE incremental → `workspace.gold.*` |
+| `03_build_gold.py` | Tabelas analíticas → `workspace.gold.*` |
 | `04_data_quality_checks.py` | Validações com auditoria → `workspace.gold.data_quality_summary` |
-| `05_spark_optimization_examples.py` | Exemplos comentados de otimização Spark |
+| `05_spark_optimization_examples.py` | Exemplos de OPTIMIZE, ZORDER e time travel |
 
 ---
 
 ## Tabelas criadas
 
-### Bronze — dados brutos
+### Bronze
 
 | Tabela | Fonte |
 |---|---|
@@ -159,13 +152,13 @@ Abra cada notebook dentro do repo no Databricks e execute com **Serverless compu
 | `workspace.bronze.reviews` | olist_order_reviews_dataset.csv |
 | `workspace.bronze.category_translation` | product_category_name_translation.csv |
 
-### Silver — dados limpos
+### Silver
 
 | Tabela | Descrição |
 |---|---|
 | `workspace.silver.orders` | Pedidos com datas convertidas, flags `is_late` e `is_delivered` |
 | `workspace.silver.order_items` | Itens com `item_total_value` calculado |
-| `workspace.silver.payments` | Pagamentos validados com flags de tipo |
+| `workspace.silver.payments` | Pagamentos validados |
 | `workspace.silver.customers` | Clientes padronizados |
 | `workspace.silver.products` | Produtos com categoria em inglês (broadcast join) |
 | `workspace.silver.sellers` | Vendedores padronizados |
@@ -173,120 +166,24 @@ Abra cada notebook dentro do repo no Databricks e execute com **Serverless compu
 | `workspace.silver.invalid_orders` | Pedidos inválidos isolados para auditoria |
 | `workspace.silver.invalid_payments` | Pagamentos inválidos isolados para auditoria |
 
-### Gold — tabelas analíticas
+### Gold
 
 | Tabela | Descrição |
 |---|---|
-| `workspace.gold.fact_order_revenue` | Tabela fato com 1 linha por pedido, particionada por data |
-| `workspace.gold.daily_revenue` | Receita agregada por dia e estado |
-| `workspace.gold.customer_state_revenue` | Receita, volume e taxa de atraso por estado |
-| `workspace.gold.product_category_revenue` | Receita e volume por categoria de produto |
-| `workspace.gold.seller_performance` | Desempenho de vendas e entrega por seller |
+| `workspace.gold.fact_order_revenue` | Tabela fato, 1 linha por pedido, particionada por data |
+| `workspace.gold.daily_revenue` | Receita por dia e estado |
+| `workspace.gold.customer_state_revenue` | Receita e taxa de atraso por estado |
+| `workspace.gold.product_category_revenue` | Receita por categoria |
+| `workspace.gold.seller_performance` | Desempenho por seller |
 | `workspace.gold.payment_method_summary` | Resumo por método de pagamento |
 | `workspace.gold.data_quality_summary` | Auditoria de qualidade de dados |
 
 ---
 
-## Conceitos Spark demonstrados
+## Documentação
 
-- **Schemas explícitos (StructType)** — sem `inferSchema`, tipagem previsível e performática
-- **Medallion Architecture** — separação Bronze / Silver / Gold com responsabilidades distintas
-- **Delta Lake** — ACID, schema enforcement, MERGE incremental, time travel
-- **Broadcast join** — tabela de tradução de categorias enviada para todos os executores
-- **Window functions** — identificação do pagamento principal por pedido
-- **Lazy evaluation** — plano de execução construído antes da action
-- **Particionamento** — tabela fato particionada por `order_purchase_date`
-- **OPTIMIZE + ZORDER** — compactação e reorganização física para data skipping
-- **Data quality** — registros inválidos isolados com registro de auditoria
-
----
-
-## Decisões técnicas
-
-**Por que schemas explícitos na Bronze?**
-`inferSchema=True` faz scan duplo do arquivo e pode inferir tipos incorretos. Schemas
-definidos em `src/schemas.py` tornam o pipeline previsível. Datas ficam como `StringType`
-na Bronze intencionalmente — a conversão é responsabilidade da Silver.
-
-**Por que `is_late` é `null` para pedidos não entregues?**
-Usar `False` para pedidos ainda em trânsito mascararia a análise de taxa de atraso.
-`null` deixa explícito que o campo não é aplicável, e o filtro `WHERE is_delivered = true`
-garante que apenas pedidos concluídos entram no cálculo.
-
-**Por que `overwrite` e não carga incremental?**
-
-Este projeto usa `mode("overwrite")` na Bronze e Silver intencionalmente, por duas razões:
-
-1. **Dataset estático** — os CSVs da Olist são um snapshot histórico fixo. Não há novos
-   arquivos chegando, portanto não existe "delta" real a processar. Fazer MERGE num dataset
-   que nunca muda não acrescentaria valor prático.
-
-2. **Foco educacional** — o overwrite simplifica o ciclo de desenvolvimento: limpa a tabela
-   e reescreve do zero a cada execução, eliminando efeitos colaterais de reprocessamentos
-   parciais durante a construção e depuração do pipeline.
-
-**Como seria o incremental em produção:**
-
-Em um pipeline real com dados chegando continuamente, a abordagem correta seria:
-
-- **Bronze (append):** ao invés de `overwrite`, usar `mode("append")` com filtro por data de
-  ingestão, garantindo que apenas arquivos novos sejam processados:
-
-  ```python
-  df.write.format("delta").mode("append").saveAsTable(table_name)
-  ```
-
-- **Silver (MERGE/upsert):** para refletir atualizações em pedidos já existentes (ex: status
-  mudou de `shipped` para `delivered`), usar `MERGE INTO` que aplica insert para novos
-  registros e update para os existentes, sem reescrever toda a tabela:
-
-  ```python
-  silver_table.alias("target").merge(
-      new_data.alias("source"),
-      "target.order_id = source.order_id"
-  ).whenMatchedUpdateAll()   # atualiza se já existe
-   .whenNotMatchedInsertAll() # insere se é novo
-   .execute()
-  ```
-
-- **Gold (MERGE ou recalculo incremental):** tabelas de agregação podem ser recalculadas
-  apenas para o período afetado (ex: última semana) usando filtro de partição, evitando
-  reprocessar todo o histórico.
-
-O Delta Lake suporta as duas estratégias nativamente e mantém o transaction log em ambos os
-casos, o que habilita `time travel` independentemente do modo usado.
-
-**OPTIMIZE e ZORDER — quando cada um importa**
-
-O Delta Lake acumula arquivos Parquet pequenos a cada write — especialmente em tabelas
-particionadas ou com cargas incrementais frequentes. O `OPTIMIZE` compacta esses arquivos
-em arquivos maiores (~1 GB), reduzindo o overhead de I/O.
-
-> **Impacto real:** em pipelines com carga incremental diária (append ou MERGE), cada
-> execução gera novos arquivos nas partições existentes. Sem `OPTIMIZE`, uma partição de
-> um dia pode ter dezenas de arquivos tiny após semanas de execução. Neste projeto com
-> dataset estático e `overwrite`, o impacto do OPTIMIZE é baixo — o valor aparece em
-> produção com cargas incrementais contínuas.
-
-O `OPTIMIZE` não exclui fisicamente os arquivos antigos: apenas os marca como removidos
-no transaction log. A exclusão física ocorre ao rodar `VACUUM` (mínimo recomendado:
-`RETAIN 168 HOURS` para preservar 7 dias de time travel).
-
-**ZORDER e data skipping**
-
-O Delta Lake armazena estatísticas de `min` e `max` por coluna para cada bloco de dados
-automaticamente em **todos os writes** — independente do ZORDER. O que o ZORDER muda
-não é a existência das estatísticas, mas a **utilidade** delas.
-
-Sem ZORDER, os dados são distribuídos aleatoriamente: cada bloco tem SP misturado com
-AM, RJ, MG... então o intervalo `min='AM' / max='SP'` se repete em praticamente todos
-os blocos. O Spark não consegue eliminar nenhum bloco ao filtrar por `customer_state = 'SP'`.
-
-Com `ZORDER BY (customer_state)`, registros com valores próximos ficam no mesmo bloco.
-Os intervalos min/max deixam de se sobrepor — o Spark pula a maioria dos blocos sem
-abri-los. Isso é o **data skipping**.
-
-A coluna escolhida deve ser de **média cardinalidade** e usada frequentemente em filtros
-analíticos. `customer_state` (27 valores) e `order_status` (7 valores) são candidatos
-ideais. `order_id` (99 mil valores únicos) não beneficia o ZORDER — cada bloco teria um
-intervalo min/max único e nenhum bloco seria pulado.
+| Arquivo | Conteúdo |
+|---|---|
+| [`docs/architecture.md`](docs/architecture.md) | Diagrama, descrição das camadas, Unity Catalog, Delta Lake |
+| [`docs/spark_concepts.md`](docs/spark_concepts.md) | Lazy eval, broadcast join, window functions, ZORDER, time travel, multiLine CSV |
+| [`docs/project_talking_points.md`](docs/project_talking_points.md) | Decisões técnicas e pontos de defesa do projeto |
