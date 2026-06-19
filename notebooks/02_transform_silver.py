@@ -202,12 +202,20 @@ print(f"  ✓ {SILVER_CUSTOMERS}: {customers_clean.count()} registros")
 
 # COMMAND ----------
 
-products_raw    = spark.table(BRONZE_PRODUCTS)
-translation_raw = spark.table(BRONZE_CATEGORY)
+products_raw = spark.table(BRONZE_PRODUCTS)
+
+# Seleciona apenas as colunas de negócio da tabela de tradução antes do join.
+# A tabela de tradução também possui colunas de metadados de ingestão
+# (ingestion_date, ingestion_timestamp, source_file) herdadas da Bronze.
+# Sem esse select, o join resultaria em colunas duplicadas e o Delta rejeitaria a escrita.
+category_filtered_raw = spark.table(BRONZE_CATEGORY).select(
+    "product_category_name",
+    "product_category_name_english"
+)
 
 products_clean = (
     products_raw
-    .join(broadcast(translation_raw), "product_category_name", "left")
+    .join(broadcast(category_filtered_raw), "product_category_name", "left")
     .withColumn(
         "product_category_name_english",
         coalesce(col("product_category_name_english"), lit("unknown"))
