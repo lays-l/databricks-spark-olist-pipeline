@@ -34,16 +34,21 @@ from src.schemas import (
 
 # COMMAND ----------
 
-def ingest_csv_to_bronze(file_name: str, schema, table_name: str):
+def ingest_csv_to_bronze(file_name: str, schema, table_name: str, multiline: bool = False):
     """
     Lê um CSV do Volume com schema explícito, adiciona metadados de ingestão
     e salva como Delta Table na camada Bronze.
+
+    multiline=True: necessário para arquivos com texto livre que pode conter quebras de linha
+    dentro de campos entre aspas (ex: review_comment_message). Sem essa opção, o Spark
+    interpreta cada \n como nova linha e desalinha as colunas subsequentes.
     """
     path = f"{RAW_DATA_PATH}/{file_name}"
 
     df = (
         spark.read
         .option("header", True)
+        .option("multiLine", multiline)
         .schema(schema)
         .csv(path)
         .withColumn("ingestion_timestamp", current_timestamp())
@@ -70,7 +75,7 @@ ingest_csv_to_bronze(SOURCE_FILES["payments"],           PAYMENTS_SCHEMA,       
 ingest_csv_to_bronze(SOURCE_FILES["customers"],          CUSTOMERS_SCHEMA,           BRONZE_CUSTOMERS)
 ingest_csv_to_bronze(SOURCE_FILES["products"],           PRODUCTS_SCHEMA,            BRONZE_PRODUCTS)
 ingest_csv_to_bronze(SOURCE_FILES["sellers"],            SELLERS_SCHEMA,             BRONZE_SELLERS)
-ingest_csv_to_bronze(SOURCE_FILES["reviews"],            REVIEWS_SCHEMA,             BRONZE_REVIEWS)
+ingest_csv_to_bronze(SOURCE_FILES["reviews"],            REVIEWS_SCHEMA,             BRONZE_REVIEWS,    multiline=True)
 ingest_csv_to_bronze(SOURCE_FILES["category_translation"], CATEGORY_TRANSLATION_SCHEMA, BRONZE_CATEGORY)
 
 print("\nIngestão Bronze concluída.")
